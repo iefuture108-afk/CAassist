@@ -1,336 +1,472 @@
 import streamlit as st
-import pandas as pd
 import random
-import re
-import time
-import hashlib
-import json
-from datetime import datetime, timedelta
-from collections import defaultdict
+from datetime import datetime
 
-# ---------- LEGAL DISCLAIMER CONSTANTS ----------
-LEGAL_DISCLAIMER = """
-⚠️ **LEGAL DISCLAIMER - PLEASE READ CAREFULLY**
+# ---------- PAGE CONFIG ----------
+st.set_page_config(
+    page_title="CA Assist - Tax Guide",
+    page_icon="🧾",
+    layout="wide"
+)
 
-This AI Assistant provides **general information only** and is NOT a substitute for:
-- Professional advice from a registered Chartered Accountant (CA)
-- Legal advice from a qualified lawyer
-- Official government notifications or circulars
+# ---------- SIMPLE CSS ----------
+st.markdown("""
+<style>
+.user-msg {
+    background-color: #e8f0fe;
+    padding: 10px 15px;
+    border-radius: 15px;
+    margin: 8px 0;
+    max-width: 80%;
+    float: right;
+    clear: both;
+}
+.ai-msg {
+    background-color: #f1f3f4;
+    padding: 10px 15px;
+    border-radius: 15px;
+    margin: 8px 0;
+    max-width: 80%;
+    float: left;
+    clear: both;
+}
+.chat-container {
+    min-height: 400px;
+    margin-bottom: 20px;
+}
+.govt-link {
+    color: #1a73e8;
+    text-decoration: none;
+}
+.govt-link:hover {
+    text-decoration: underline;
+}
+</style>
+""", unsafe_allow_html=True)
 
-**By using this service, you acknowledge and agree that:**
-1. Tax laws vary by specific facts, circumstances, and jurisdiction
-2. The information provided may not be accurate, complete, or up-to-date
-3. AI-generated content may contain errors, hallucinations, or omissions
-4. You assume full responsibility for any decisions or actions taken
-5. The developer, operator, and hosting provider are NOT liable for any:
-   - Financial losses, penalties, or legal consequences
-   - Reliance on AI-generated information
-   - Delays, errors, or omissions in responses
+# ---------- GOVERNMENT LINKS DATABASE ----------
+GOVT_LINKS = {
+    "gst_portal": "https://www.gst.gov.in",
+    "income_tax_portal": "https://www.incometax.gov.in",
+    "msme_registration": "https://udyamregistration.gov.in",
+    "pan_tin": "https://www.tin-nsdl.com",
+    "gst_returns": "https://services.gst.gov.in/services/login",
+    "e_way_bill": "https://ewaybillgst.gov.in",
+    "itr_filing": "https://www.incometax.gov.in/iec/foportal/"
+}
 
-**Recommended Action:** Always verify critical tax/financial information with:
-- Official government websites (gst.gov.in, incometax.gov.in)
-- A registered CA with valid COP (Certificate of Practice)
-- Your legal advisor
-
-**Compliance Status:** This platform operates as an information service under the IT Act, 2000 and DPDP Act, 2023. We are NOT a registered CA firm.
-
-[By proceeding, you confirm you have read, understood, and agreed to the above]
-"""
-
-PRIVACY_POLICY = """
-# 📋 PRIVACY POLICY (DPDP Act, 2023 Compliant)
-
-**Last Updated:** June 2026
-
-## 1. Data We Collect
-- **Personal Information:** Name, PIN code (for access)
-- **Usage Data:** Queries, timestamps, anonymized interaction logs
-- **Technical Data:** IP address (retained for 30 days for security)
-
-## 2. How We Use Your Data
-- ✅ To provide AI-generated responses to your queries
-- ✅ To improve our AI models (anonymized and aggregated)
-- ✅ To comply with legal obligations (IT Rules, 2021)
-- ✅ To detect and prevent abuse or harmful content
-
-## 3. Data Storage & Security
-- All data encrypted at rest (AES-256) and in transit (TLS 1.3)
-- Conversations stored for maximum 90 days, then anonymized
-- IP addresses retained for 30 days (legal compliance)
-
-## 4. Your Rights (Data Principal Rights)
-You have the right to:
-- **Access:** Request a copy of your data
-- **Correction:** Fix inaccurate information
-- **Erasure:** Delete your data (request via grievance@cassist.ai)
-- **Grievance:** Lodge complaint with Data Protection Board
-
-## 5. Data Sharing
-We do NOT sell your data. We share only:
-- With AI API providers (OpenAI/Claude) to generate responses (subject to their privacy policies)
-- With law enforcement if legally required (court order)
-
-## 6. Children's Privacy
-This service is NOT for persons under 18 years of age.
-
-## 7. Contact & Grievance Officer
-**Name:** Grievance Officer  
-**Email:** grievance@cassist.ai  
-**Response Time:** Within 72 hours  
-**Physical Address:** [Your Registered Address]
-
-## 8. Breach Notification
-In case of data breach, affected users will be notified within 72 hours as required by DPDP Act.
-
-**Consent:** By using this platform, you explicitly consent to this privacy policy.
-"""
-
-TERMS_OF_SERVICE = """
-# ⚖️ TERMS OF SERVICE
-
-## 1. Acceptance
-By accessing CA Assist AI, you agree to these terms, the Privacy Policy, and Legal Disclaimer.
-
-## 2. No CA-Client Relationship
-Use of this AI does NOT create a chartered accountant-client relationship. We are not responsible for your tax filings or compliance.
-
-## 3. Prohibited Uses
-You may NOT use this service to:
-- Attempt illegal tax evasion
-- Generate fraudulent documents
-- Harass, abuse, or harm others
-- Reverse engineer or scrape the AI model
-- Use for competitive intelligence
-
-## 4. Limitation of Liability
-To the maximum extent permitted by law:
-- Total liability cap: ₹1,000 (Rupees One Thousand Only)
-- We are NOT liable for indirect, consequential, or special damages
-
-## 5. Indemnification
-You agree to indemnify and hold harmless the operator from any claims arising from your misuse of this service.
-
-## 6. Governing Law
-These terms are governed by the laws of India. Disputes subject to exclusive jurisdiction of courts in [Your City].
-
-## 7. Modifications
-We may update these terms at any time. Continued use constitutes acceptance.
-
-## 8. Grievance Redressal
-Contact grievance@cassist.ai for complaints. Response within 72 hours.
-
-**Last Updated:** June 2026
-"""
-
-# ---------- CONTENT FILTERING (IT Rules 2021) ----------
-class ContentFilter:
-    """Prevents harmful/prohibited queries"""
+# ---------- KNOWLEDGE BASE (Only official procedures + links) ----------
+def get_response(user_query):
+    """Return response with government links and standard procedures"""
     
-    PROHIBITED_PATTERNS = {
-        "tax_evasion": [
-            r"(hide|conceal|evade|avoid paying)\s*(tax|gst|income tax)",
-            r"(fake|false|bogus)\s*(invoice|bill|receipt)",
-            r"under[ -]?reporting\s*(income|sales)",
-            r"black\s*money",
-            r"hawala"
-        ],
-        "illegal_activities": [
-            r"(hack|crack|break into)\s*(gst|income tax|portal|server)",
-            r"forgery",
-            r"counterfeit\s*(gstin|pan|invoice)",
-            r"identity\s*theft"
-        ],
-        "harmful_content": [
-            r"(threat|abuse|harass|bully)",
-            r"(violence|attack|harm)\s*(person|people)",
-            r"terrorism"
-        ],
-        "sensitive_personal_info": [
-            r"(pan\s*number|aadhaar|password|otp)",
-            r"(credit\s*card|debit\s*card|bank\s*account)\s*(number|details)"
-        ]
-    }
+    q = user_query.lower().strip()
     
-    @staticmethod
-    def is_prohibited(query):
-        """Check if query contains prohibited content"""
-        query_lower = query.lower()
+    # GST Registration
+    if "gst registration" in q or "register for gst" in q or "how to get gst" in q:
+        return f"""
+        **📋 GST Registration Process**
         
-        for category, patterns in ContentFilter.PROHIBITED_PATTERNS.items():
-            for pattern in patterns:
-                if re.search(pattern, query_lower):
-                    return True, category, pattern
+        **Step-by-step guide:**
+        1. Visit official GST portal: [{GOVT_LINKS['gst_portal']}]({GOVT_LINKS['gst_portal']})
+        2. Click 'Services' → 'Registration' → 'New Registration'
+        3. Enter PAN, mobile, email → Get OTP
+        4. Receive Temporary Reference Number (TRN)
+        5. Login with TRN → Complete Part B form
+        6. Upload documents (address proof, bank statement, photo)
+        7. Submit using EVC (OTP) or DSC
+        8. Get ARN → GSTIN within 7 days
         
-        return False, None, None
+        **Documents required:**
+        • PAN Card
+        • Aadhaar Card
+        • Business address proof
+        • Bank account statement/cancelled cheque
+        • Passport size photo
+        
+        **Cost:** ₹0 (Government fee)
+        
+        🔗 **Official Portal:** [gst.gov.in]({GOVT_LINKS['gst_portal']})
+        """
     
-    @staticmethod
-    def sanitize_response(response):
-        """Ensure response doesn't contain prohibited content"""
-        # Additional safety: block any response that might encourage illegal activity
-        harmful_phrases = [
-            "you can hide", "evade tax by", "fake invoice", 
-            "underreport without getting caught"
-        ]
+    # GST Returns
+    if "gst return" in q or "file gst" in q or "gstr" in q:
+        return f"""
+        **📅 GST Return Filing Guide**
         
-        for phrase in harmful_phrases:
-            if phrase.lower() in response.lower():
-                return "⚠️ I cannot provide information that may facilitate tax evasion or illegal activities. Please consult a registered CA for legitimate tax planning."
+        **Returns you need to file:**
         
-        return response
+        | Return | Due Date | What to file |
+        |--------|----------|--------------|
+        | GSTR-1 | 11th of next month | Sales details |
+        | GSTR-3B | 20th of next month | Tax summary + payment |
+        | GSTR-9 | 31st Dec (annual) | Annual return |
+        
+        **Step-by-step filing:**
+        1. Login to [{GOVT_LINKS['gst_returns']}]({GOVT_LINKS['gst_returns']})
+        2. Go to 'Returns Dashboard'
+        3. Select month/year
+        4. Fill GSTR-1 (invoice-wise for B2B, summary for B2C)
+        5. File GSTR-1 using DSC/EVC
+        6. GSTR-2B auto-populates on 14th
+        7. Fill GSTR-3B (tax liability + ITC claim)
+        8. Pay tax and file GSTR-3B
+        
+        **Late fees:** ₹50/day (with tax) or ₹20/day (nil return)
+        
+        🔗 **File here:** [{GOVT_LINKS['gst_returns']}]({GOVT_LINKS['gst_returns']})
+        """
+    
+    # TCS for E-commerce
+    if "tcs" in q or "marketplace" in q or "amazon" in q or "flipkart" in q:
+        return f"""
+        **🏦 TCS on E-commerce Sales**
+        
+        **What is TCS?**
+        - Marketplaces deduct **1% TCS** (0.5% CGST + 0.5% SGST or 1% IGST)
+        - Deducted before payout to you
+        
+        **How to claim TCS credit:**
+        1. Download GSTR-2A from [{GOVT_LINKS['gst_portal']}]({GOVT_LINKS['gst_portal']})
+        2. Check TCS credit under 'TCS Credit' section
+        3. Auto-populates in GSTR-3B
+        4. Use this credit to pay your GST liability
+        
+        **Important checklist:**
+        ✅ Verify marketplace GSTIN in your settlement report
+        ✅ Download GSTR-2B on 14th of every month
+        ✅ Reconcile TCS before filing GSTR-3B
+        ✅ Report mismatches to marketplace within 30 days
+        
+        🔗 **Check TCS credit:** [gst.gov.in]({GOVT_LINKS['gst_portal']})
+        """
+    
+    # Income Tax - New Regime vs Old Regime
+    if "income tax slab" in q or "tax rate" in q or "new regime" in q or "old regime" in q:
+        return f"""
+        **💰 Income Tax Slabs (FY 2024-25)**
+        
+        **New Tax Regime (Default):**
+        
+        | Income Range | Tax Rate |
+        |--------------|----------|
+        | ₹0 - ₹3,00,000 | 0% |
+        | ₹3,00,001 - ₹6,00,000 | 5% |
+        | ₹6,00,001 - ₹9,00,000 | 10% |
+        | ₹9,00,001 - ₹12,00,000 | 15% |
+        | ₹12,00,001 - ₹15,00,000 | 20% |
+        | Above ₹15,00,000 | 30% |
+        
+        **Old Tax Regime (Opt-in):**
+        
+        | Income Range | Tax Rate |
+        |--------------|----------|
+        | ₹0 - ₹2,50,000 | 0% |
+        | ₹2,50,001 - ₹5,00,000 | 5% |
+        | ₹5,00,001 - ₹10,00,000 | 20% |
+        | Above ₹10,00,000 | 30% |
+        
+        **Standard Deduction:** ₹50,000 (salaried)
+        
+        🔗 **Official portal:** [{GOVT_LINKS['income_tax_portal']}]({GOVT_LINKS['income_tax_portal']})
+        """
+    
+    # ITR Filing
+    if "itr filing" in q or "file itr" in q or "income tax return" in q:
+        return f"""
+        **📝 ITR Filing Guide**
+        
+        **Which ITR form to use:**
+        
+        | Form | Who can file |
+        |------|--------------|
+        | ITR-1 (Sahaj) | Salary, one house property, income < ₹50L |
+        | ITR-2 | Capital gains, multiple house properties |
+        | ITR-3 | Business/professional income |
+        | ITR-4 (Sugam) | Presumptive taxation (44AD/44ADA) |
+        
+        **Due Dates:**
+        - Without audit: **31st July**
+        - With audit: **31st October**
+        
+        **Step-by-step:**
+        1. Login to [{GOVT_LINKS['income_tax_portal']}]({GOVT_LINKS['income_tax_portal']})
+        2. Go to 'e-File' → 'Income Tax Return'
+        3. Select Assessment Year (2025-26)
+        4. Choose correct ITR form
+        5. Fill details (can auto-fill from Form 26AS)
+        6. Validate and submit
+        7. E-verify using Aadhaar OTP, Net banking, or DSC
+        
+        🔗 **File ITR:** [{GOVT_LINKS['income_tax_portal']}]({GOVT_LINKS['income_tax_portal']})
+        """
+    
+    # TDS
+    if "tds" in q and "deduction" not in q:
+        return f"""
+        **📌 TDS (Tax Deducted at Source) Guide**
+        
+        **Common TDS rates:**
+        
+        | Payment Type | TDS Rate | Section |
+        |--------------|----------|---------|
+        | Salary | Slab rate | 192 |
+        | Contractor payment | 1% (individual) / 2% (others) | 194C |
+        | Rent (plant/machinery) | 2% | 194-I |
+        | Rent (land/building) | 10% | 194-I |
+        | Professional fees | 10% | 194J |
+        | Interest (other than securities) | 10% | 194A |
+        
+        **Important due dates:**
+        - TDS Deposit: **7th of next month**
+        - TDS Return (24Q/26Q): **31st of next month**
+        - TDS Certificate (Form 16/16A): Within 15 days of return filing
+        
+        🔗 **TDS portal:** [tin-nsdl.com]({GOVT_LINKS['pan_tin']})
+        """
+    
+    # 80C Deductions
+    if "80c" in q or "tax saving" in q or "deduction" in q:
+        return f"""
+        **💡 Section 80C Deductions (Max ₹1,50,000)**
+        
+        **Eligible investments/expenses:**
+        - ✅ Life Insurance Premium (LIC)
+        - ✅ PPF (Public Provident Fund)
+        - ✅ ELSS (Equity Linked Savings Scheme)
+        - ✅ 5-year Fixed Deposit (Post Office/Bank)
+        - ✅ NSC (National Savings Certificate)
+        - ✅ Sukanya Samriddhi Yojana
+        - ✅ Tuition fees (children, max 2 kids)
+        - ✅ Home loan principal repayment
+        - ✅ NPS (up to ₹50,000 additional under 80CCD(1B))
+        
+        **Other popular deductions:**
+        - **80D:** Health insurance (₹25,000 self, ₹50,000 senior citizens)
+        - **80E:** Education loan interest (no limit)
+        - **80G:** Donations (50% or 100% of amount)
+        - **80TTA:** Interest on savings account (₹10,000)
+        
+        🔗 **Official source:** [incometax.gov.in]({GOVT_LINKS['income_tax_portal']})
+        """
+    
+    # e-Way Bill
+    if "eway" in q or "e-way bill" in q:
+        return f"""
+        **🚛 e-Way Bill Guide**
+        
+        **When required:**
+        - Goods value > ₹50,000
+        - Inter-state movement of goods
+        - Intra-state (varies by state, typically > ₹1 lakh)
+        
+        **How to generate:**
+        1. Login to [{GOVT_LINKS['e_way_bill']}]({GOVT_LINKS['e_way_bill']})
+        2. Enter GSTIN of supplier & recipient
+        3. Enter invoice details (number, date, value)
+        4. Enter HSN code and quantity
+        5. Enter transporter details (vehicle number)
+        6. Generate e-Way Bill (valid for based on distance)
+        
+        **Validity:**
+        - Up to 100 km: 1 day
+        - 100-200 km: 3 days
+        - 200-500 km: 5 days
+        - Every additional 200 km: +1 day
+        
+        🔗 **Generate here:** [{GOVT_LINKS['e_way_bill']}]({GOVT_LINKS['e_way_bill']})
+        """
+    
+    # MSME Registration
+    if "msme" in q or "udyam" in q or "small business registration" in q:
+        return f"""
+        **🏭 MSME/Udyam Registration**
+        
+        **Benefits:**
+        - Priority sector lending
+        - Interest rate subsidy (2-3%)
+        - Government tender preference
+        - Protection against delayed payments
+        - Subsidy on patent/industry registration
+        
+        **Eligibility:**
+        
+        | Category | Investment (Plant & Machinery) | Turnover |
+        |----------|-------------------------------|----------|
+        | Micro | ≤ ₹1 crore | ≤ ₹5 crore |
+        | Small | ≤ ₹10 crore | ≤ ₹50 crore |
+        | Medium | ≤ ₹50 crore | ≤ ₹250 crore |
+        
+        **Process:**
+        1. Visit [{GOVT_LINKS['msme_registration']}]({GOVT_LINKS['msme_registration']})
+        2. Enter Aadhaar number
+        3. Fill business details (name, address, bank)
+        4. Enter investment and turnover
+        5. Submit → Get Udyam Registration Certificate instantly
+        
+        🔗 **Register:** [udyamregistration.gov.in]({GOVT_LINKS['msme_registration']})
+        """
+    
+    # Late fee / Penalty
+    if "penalty" in q or "late fee" in q or "interest" in q:
+        return f"""
+        **⚠️ GST Late Fee & Interest**
+        
+        **GST Late Fees:**
+        - GSTR-3B (with tax): ₹50/day (₹25 CGST + ₹25 SGST)
+        - GSTR-3B (nil return): ₹20/day (₹10 CGST + ₹10 SGST)
+        - GSTR-1: ₹50/day (₹25 CGST + ₹25 SGST)
+        - Maximum late fee: ₹5,000 per return
+        
+        **Interest:**
+        - 18% per annum on tax amount overdue
+        - Calculated from due date to actual payment date
+        
+        **Example:**
+        If tax due is ₹10,000 and delayed by 30 days:
+        - Late fee: ₹50 × 30 = ₹1,500
+        - Interest: ₹10,000 × 18% × (30/365) = ₹148
+        - Total penalty: ₹1,648
+        
+        **How to pay penalty:**
+        1. Login to gst.gov.in
+        2. File pending return (will auto-calculate penalty)
+        3. Pay via online banking/credit card
+        4. Download acknowledgment
+        
+        🔗 **File pending returns:** [{GOVT_LINKS['gst_portal']}]({GOVT_LINKS['gst_portal']})
+        """
+    
+    # Input Tax Credit
+    if "itc" in q or "input tax credit" in q:
+        return f"""
+        **🔄 Input Tax Credit (ITC) Guide**
+        
+        **What is ITC?**
+        Tax you paid on purchases can be reduced from tax you collect on sales.
+        
+        **Eligibility conditions:**
+        ✅ Must have valid tax invoice
+        ✅ Goods/services must be received
+        ✅ Supplier must have filed return and paid tax
+        ✅ ITC appears in GSTR-2B
+        ✅ Used for business purpose only
+        
+        **ITC that is BLOCKED (cannot claim):**
+        ❌ Motor vehicles (except for further sale/transport business)
+        ❌ Food & beverages
+        ❌ Health services (medical insurance, gym)
+        ❌ Rent-a-cab service
+        ❌ Membership fees (clubs, health clubs)
+        ❌ Works contract for immovable property
+        
+        **How to claim:**
+        1. Ensure supplier files GSTR-1
+        2. Check GSTR-2B (available on 14th of every month)
+        3. Match ITC with your purchase register
+        4. Claim in GSTR-3B
+        5. Keep invoices ready for audit (7 years)
+        
+        🔗 **Check your ITC:** [{GOVT_LINKS['gst_portal']}]({GOVT_LINKS['gst_portal']}) → 'Returns' → 'GSTR-2B'
+        """
+    
+    # Help / Default
+    return f"""
+    **🤖 CA Assist - Your Tax Guide**
+    
+    I can help you with these topics:
+    
+    | Topic | What to ask |
+    |-------|-------------|
+    | 📋 **GST Registration** | "How to register for GST?" |
+    | 📅 **GST Returns** | "How to file GSTR-3B?" |
+    | 🏦 **TCS on E-commerce** | "TCS on Amazon/Flipkart" |
+    | 💰 **Income Tax** | "Income tax slab 2024" |
+    | 📝 **ITR Filing** | "How to file ITR?" |
+    | 💡 **Tax Saving** | "80C deductions list" |
+    | ⚠️ **Penalty** | "Late fee for GSTR-3B" |
+    | 🏭 **MSME** | "MSME registration" |
+    | 🚛 **e-Way Bill** | "How to generate e-Way Bill?" |
+    | 🔄 **ITC** | "What is Input Tax Credit?" |
+    
+    **Just type your question above!** 
+    
+    🔗 **All information includes links to official government portals.**
+    """
 
-# ---------- RATE LIMITING ----------
-class RateLimiter:
-    """Prevents abuse and DDoS"""
-    
-    def __init__(self):
-        self.user_requests = defaultdict(list)
-        self.MAX_REQUESTS_PER_MINUTE = 30
-        self.MAX_REQUESTS_PER_HOUR = 300
-    
-    def check_limit(self, user_id):
-        """Check if user exceeded rate limits"""
-        now = time.time()
-        
-        # Clean old entries
-        self.user_requests[user_id] = [
-            ts for ts in self.user_requests[user_id] 
-            if now - ts < 3600  # Keep last hour
-        ]
-        
-        # Check minute limit
-        minute_requests = len([ts for ts in self.user_requests[user_id] if now - ts < 60])
-        if minute_requests >= self.MAX_REQUESTS_PER_MINUTE:
-            return False, "Rate limit exceeded: Maximum 30 queries per minute"
-        
-        # Check hour limit
-        if len(self.user_requests[user_id]) >= self.MAX_REQUESTS_PER_HOUR:
-            return False, "Rate limit exceeded: Maximum 300 queries per hour"
-        
-        # Add current request
-        self.user_requests[user_id].append(now)
-        return True, "OK"
+# ---------- SESSION STATE ----------
+def init():
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+        # Welcome message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Hello! I'm CA Assist. Ask me anything about GST, Income Tax, or business compliance. I'll guide you with official government links and standard procedures."
+        })
 
-# ---------- AUDIT LOGGING (For Legal Compliance) ----------
-class AuditLogger:
-    """Logs interactions for legal compliance (anonymized after 30 days)"""
-    
-    @staticmethod
-    def log_interaction(user_id, query, response_summary, status):
-        """Store interaction for audit trail"""
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "user_hash": hashlib.sha256(user_id.encode()).hexdigest()[:16],
-            "query_hash": hashlib.sha256(query.encode()).hexdigest()[:16],
-            "response_length": len(response_summary),
-            "status": status,
-            "ip_hash": "[REDACTED]",  # In production, hash the IP
-        }
-        
-        # In production, write to secure database
-        # For demo, store in session
-        if 'audit_logs' not in st.session_state:
-            st.session_state.audit_logs = []
-        st.session_state.audit_logs.append(log_entry)
-        
-        # Keep only last 100 for demo
-        if len(st.session_state.audit_logs) > 100:
-            st.session_state.audit_logs = st.session_state.audit_logs[-100:]
-        
-        return log_entry
-
-# ---------- KNOWLEDGE BASE (Same as before, but with safeguards) ----------
-class CAKnowledgeBase:
-    """Comprehensive knowledge base for CA workflows (safeguarded)"""
-    
-    # [Previous knowledge base methods remain the same]
-    # (Included from previous code for brevity - paste your existing KB here)
-    
-    @staticmethod
-    def get_gst_info(query):
-        """GST related information with compliance flags"""
-        # Restrict sensitive queries
-        if any(word in query.lower() for word in ['evasion', 'fake', 'illegal', 'bypass']):
-            return {
-                "error": "cannot_provide",
-                "message": "I cannot provide information that may facilitate tax evasion or illegal activities. For legitimate tax planning, please consult a registered CA."
-            }
-        
-        # [Rest of GST info logic from previous code]
-        return None
-
-# ---------- LEGAL CONSENT COMPONENT ----------
-def legal_consent_modal():
-    """Force user to accept legal terms before using the app"""
-    
-    if 'legal_accepted' not in st.session_state:
-        st.session_state.legal_accepted = False
-    
-    if not st.session_state.legal_accepted:
-        st.markdown("### ⚖️ Legal Compliance Required")
-        
-        with st.expander("📜 Legal Disclaimer (MUST READ)", expanded=True):
-            st.markdown(LEGAL_DISCLAIMER)
-        
-        with st.expander("📋 Privacy Policy (DPDP Act 2023 Compliant)"):
-            st.markdown(PRIVACY_POLICY)
-        
-        with st.expander("⚖️ Terms of Service"):
-            st.markdown(TERMS_OF_SERVICE)
-        
-        st.divider()
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.checkbox("I have read, understood, and agree to the Legal Disclaimer, Privacy Policy, and Terms of Service", key="legal_accept_checkbox")
-        
-        with col2:
-            if st.button("✅ Proceed to CA Assist", use_container_width=True):
-                if st.session_state.get('legal_accept_checkbox', False):
-                    st.session_state.legal_accepted = True
-                    st.session_state.legal_accept_time = datetime.now().isoformat()
-                    st.rerun()
-                else:
-                    st.error("You must accept the legal terms to use this service")
-        
-        st.stop()  # Stop execution until accepted
-
-# ---------- MAIN APP WITH LEGAL & SECURITY ----------
+# ---------- MAIN APP ----------
 def main():
-    """Main application with all legal and security controls"""
+    init()
     
-    st.set_page_config(
-        page_title="CA Assist AI - Compliant Virtual CA",
-        page_icon="⚖️",
-        layout="wide"
-    )
+    # Header
+    st.title("🧾 CA Assist")
+    st.caption("Your guide to GST, Income Tax & Business Compliance")
+    st.divider()
     
-    # Force legal consent first
-    legal_consent_modal()
+    # Chat display
+    chat_container = st.container()
     
-    # Initialize session state
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = f"user_{int(time.time())}_{random.randint(1000,9999)}"
-    if 'rate_limiter' not in st.session_state:
-        st.session_state.rate_limiter = RateLimiter()
-    if 'audit_logger' not in st.session_state:
-        st.session_state.audit_logger = AuditLogger()
+    with chat_container:
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                st.markdown(f'<div class="user-msg"><b>You:</b><br/>{msg["content"]}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="ai-msg"><b>🤖 CA Assist:</b><br/>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # Check rate limit at app start
-    rate_ok, rate_msg = st.session_state.rate_limiter.check_limit(st.session_state.user_id)
-    if not rate_ok:
-        st.error(f"⛔ {rate_msg}")
-        st.info("Please wait a moment before continuing. This is for security and fair usage.")
-        st.stop()
+    # Input area
+    st.divider()
     
-    # Display permanent legal header
-    st.warning("⚠️ **Legal Notice:** AI-generated information may contain errors. Always verify with a registered CA or official government sources.")
+    col1, col2 = st.columns([5, 1])
     
-    # [Rest of your CA Assist app UI and logic from previous code]
-    # (Include the chat interface, knowledge base integration, etc.)
+    with col1:
+        user_input = st.text_input("Ask your question here:", placeholder="e.g., How to register for GST?", key="input", label_visibility="collapsed")
     
-    st.markdown("---")
-    st.caption(f"Session ID: {st.session_state.user_id[:12]}... | Grievance: grievance@cassist.ai | Response within 72 hours")
+    with col2:
+        send_btn = st.button("Send", use_container_width=True)
+    
+    # Suggested quick questions
+    st.caption("💡 Quick questions:")
+    quick_cols = st.columns(4)
+    quick_questions = [
+        "GST registration process",
+        "Income tax slab rates",
+        "How to file GSTR-3B?",
+        "TCS on Amazon sales"
+    ]
+    
+    for i, q in enumerate(quick_questions):
+        with quick_cols[i]:
+            if st.button(q, use_container_width=True):
+                user_input = q
+    
+    # Process input
+    if send_btn and user_input:
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        
+        # Get AI response
+        response = get_response(user_input)
+        
+        # Add AI response
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        
+        # Rerun to refresh chat
+        st.rerun()
+    
+    # Footer
+    st.divider()
+    st.caption("🔗 All information includes official government portal links. Always verify on government websites.")
+    st.caption("📌 GST Portal: gst.gov.in | Income Tax Portal: incometax.gov.in")
 
-# ---------- ENTRY POINT ----------
+# ---------- RUN ----------
 if __name__ == "__main__":
     main()
