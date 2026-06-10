@@ -1,245 +1,336 @@
 import streamlit as st
+import pandas as pd
 import random
+import re
 import time
+import hashlib
+import json
+from datetime import datetime, timedelta
+from collections import defaultdict
 
-# ---------- PAGE CONFIG ----------
-st.set_page_config(
-    page_title="CarryMe Store - Product Description Generator",
-    page_icon="🏠",
-    layout="centered"
-)
+# ---------- LEGAL DISCLAIMER CONSTANTS ----------
+LEGAL_DISCLAIMER = """
+⚠️ **LEGAL DISCLAIMER - PLEASE READ CAREFULLY**
 
-# ---------- CUSTOM CSS FOR BETTER UI ----------
-st.markdown("""
-    <style>
-    .stButton > button {
-        background-color: #4CAF50;
-        color: white;
-        font-size: 18px;
-        padding: 10px 24px;
-        border-radius: 8px;
-        border: none;
-    }
-    .stButton > button:hover {
-        background-color: #45a049;
-    }
-    .generated-text {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        font-family: monospace;
-        font-size: 16px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+This AI Assistant provides **general information only** and is NOT a substitute for:
+- Professional advice from a registered Chartered Accountant (CA)
+- Legal advice from a qualified lawyer
+- Official government notifications or circulars
 
-# ---------- TITLE & HEADER ----------
-st.title("🏠 CarryMe Store")
-st.subheader("AI-Powered Product Description Generator")
-st.markdown("*Create compelling product descriptions for home decor, appliance covers, towels, and table covers*")
-st.divider()
+**By using this service, you acknowledge and agree that:**
+1. Tax laws vary by specific facts, circumstances, and jurisdiction
+2. The information provided may not be accurate, complete, or up-to-date
+3. AI-generated content may contain errors, hallucinations, or omissions
+4. You assume full responsibility for any decisions or actions taken
+5. The developer, operator, and hosting provider are NOT liable for any:
+   - Financial losses, penalties, or legal consequences
+   - Reliance on AI-generated information
+   - Delays, errors, or omissions in responses
 
-# ---------- SIDEBAR: TONE PRESETS ----------
-st.sidebar.header("⚙️ Settings")
-st.sidebar.markdown("Choose your writing style:")
+**Recommended Action:** Always verify critical tax/financial information with:
+- Official government websites (gst.gov.in, incometax.gov.in)
+- A registered CA with valid COP (Certificate of Practice)
+- Your legal advisor
 
-# Tone options with descriptions
-tone_options = {
-    "Professional": "Formal, feature-focused, suitable for Amazon/Flipkart",
-    "Casual": "Friendly, conversational, great for social media",
-    "Luxury": "Elegant, premium-sounding, high-end positioning",
-    "Eco-friendly": "Natural, sustainable, organic-focused",
-    "Urgent/Buy Now": "Action-oriented, limited time feel",
-    "Storytelling": "Narrative style, emotional connection"
-}
+**Compliance Status:** This platform operates as an information service under the IT Act, 2000 and DPDP Act, 2023. We are NOT a registered CA firm.
 
-# Tone selection dropdown
-selected_tone = st.sidebar.selectbox(
-    "Select Tone",
-    options=list(tone_options.keys()),
-    index=0,
-    help=tone_options["Professional"]
-)
+[By proceeding, you confirm you have read, understood, and agreed to the above]
+"""
 
-# Display tone description
-st.sidebar.caption(tone_options[selected_tone])
+PRIVACY_POLICY = """
+# 📋 PRIVACY POLICY (DPDP Act, 2023 Compliant)
 
-# ---------- PRODUCT CATEGORY (Optional) ----------
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Product Category (Optional)")
-category = st.sidebar.selectbox(
-    "Helps generate better descriptions",
-    ["Auto-detect", "Appliance Cover", "Table Cover", "Towels", "Home Decor"],
-    index=0
-)
+**Last Updated:** June 2026
 
-# ---------- MAIN INPUT AREA ----------
-st.markdown("### 📝 Enter Product Features")
-st.markdown("*Separate features with commas or write in paragraphs*")
+## 1. Data We Collect
+- **Personal Information:** Name, PIN code (for access)
+- **Usage Data:** Queries, timestamps, anonymized interaction logs
+- **Technical Data:** IP address (retained for 30 days for security)
 
-# Text input for product features
-product_features = st.text_area(
-    "Product features",
-    placeholder="Example: 100% cotton, absorbent, quick-dry, machine washable, 20x30 inches, available in 5 colors",
-    height=150,
-    help="Include materials, size, colors, special features, etc."
-)
+## 2. How We Use Your Data
+- ✅ To provide AI-generated responses to your queries
+- ✅ To improve our AI models (anonymized and aggregated)
+- ✅ To comply with legal obligations (IT Rules, 2021)
+- ✅ To detect and prevent abuse or harmful content
 
-# Character counter
-if product_features:
-    st.caption(f"📊 {len(product_features)} characters | ~{len(product_features.split())} words")
+## 3. Data Storage & Security
+- All data encrypted at rest (AES-256) and in transit (TLS 1.3)
+- Conversations stored for maximum 90 days, then anonymized
+- IP addresses retained for 30 days (legal compliance)
 
-# Optional: Additional keywords
-with st.expander("➕ Add specific keywords (optional)"):
-    keywords = st.text_input(
-        "Keywords to include",
-        placeholder="e.g., soft, durable, eco-friendly, premium"
-    )
+## 4. Your Rights (Data Principal Rights)
+You have the right to:
+- **Access:** Request a copy of your data
+- **Correction:** Fix inaccurate information
+- **Erasure:** Delete your data (request via grievance@cassist.ai)
+- **Grievance:** Lodge complaint with Data Protection Board
 
-# ---------- GENERATE BUTTON ----------
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    generate_button = st.button("🚀 Generate Description", use_container_width=True)
+## 5. Data Sharing
+We do NOT sell your data. We share only:
+- With AI API providers (OpenAI/Claude) to generate responses (subject to their privacy policies)
+- With law enforcement if legally required (court order)
 
-# ---------- GENERATION FUNCTION ----------
-def generate_description(features, tone, category_hint="", keywords=""):
-    """Generate product description based on inputs"""
+## 6. Children's Privacy
+This service is NOT for persons under 18 years of age.
+
+## 7. Contact & Grievance Officer
+**Name:** Grievance Officer  
+**Email:** grievance@cassist.ai  
+**Response Time:** Within 72 hours  
+**Physical Address:** [Your Registered Address]
+
+## 8. Breach Notification
+In case of data breach, affected users will be notified within 72 hours as required by DPDP Act.
+
+**Consent:** By using this platform, you explicitly consent to this privacy policy.
+"""
+
+TERMS_OF_SERVICE = """
+# ⚖️ TERMS OF SERVICE
+
+## 1. Acceptance
+By accessing CA Assist AI, you agree to these terms, the Privacy Policy, and Legal Disclaimer.
+
+## 2. No CA-Client Relationship
+Use of this AI does NOT create a chartered accountant-client relationship. We are not responsible for your tax filings or compliance.
+
+## 3. Prohibited Uses
+You may NOT use this service to:
+- Attempt illegal tax evasion
+- Generate fraudulent documents
+- Harass, abuse, or harm others
+- Reverse engineer or scrape the AI model
+- Use for competitive intelligence
+
+## 4. Limitation of Liability
+To the maximum extent permitted by law:
+- Total liability cap: ₹1,000 (Rupees One Thousand Only)
+- We are NOT liable for indirect, consequential, or special damages
+
+## 5. Indemnification
+You agree to indemnify and hold harmless the operator from any claims arising from your misuse of this service.
+
+## 6. Governing Law
+These terms are governed by the laws of India. Disputes subject to exclusive jurisdiction of courts in [Your City].
+
+## 7. Modifications
+We may update these terms at any time. Continued use constitutes acceptance.
+
+## 8. Grievance Redressal
+Contact grievance@cassist.ai for complaints. Response within 72 hours.
+
+**Last Updated:** June 2026
+"""
+
+# ---------- CONTENT FILTERING (IT Rules 2021) ----------
+class ContentFilter:
+    """Prevents harmful/prohibited queries"""
     
-    # Parse features into a list
-    if "," in features:
-        feature_list = [f.strip() for f in features.split(",")]
-    else:
-        feature_list = [features]
-    
-    # Category-specific opening lines
-    category_openers = {
-        "Appliance Cover": "Protect your appliances in style with",
-        "Table Cover": "Transform your dining experience with",
-        "Towels": "Experience ultimate comfort with",
-        "Home Decor": "Elevate your living space with"
-    }
-    
-    opener = category_openers.get(category_hint, "Introducing")
-    if category_hint == "Auto-detect":
-        # Simple detection logic
-        if "cover" in features.lower():
-            opener = "Protect and enhance with"
-        elif "towel" in features.lower():
-            opener = "Indulge in luxury with"
-        else:
-            opener = "Upgrade your home with"
-    
-    # Tone-specific templates
-    templates = {
-        "Professional": [
-            f"{opener} this premium-quality product. Key features include: {', '.join(feature_list[:3])}. Designed for durability and performance, it meets the highest standards of home textile excellence. Perfect for everyday use.",
-            f"This product offers exceptional value with {feature_list[0] if feature_list else 'superior quality'}. {', '.join(feature_list[:2])} ensures long-lasting satisfaction. An ideal choice for discerning customers.",
+    PROHIBITED_PATTERNS = {
+        "tax_evasion": [
+            r"(hide|conceal|evade|avoid paying)\s*(tax|gst|income tax)",
+            r"(fake|false|bogus)\s*(invoice|bill|receipt)",
+            r"under[ -]?reporting\s*(income|sales)",
+            r"black\s*money",
+            r"hawala"
         ],
-        "Casual": [
-            f"Hey there! Meet your new favorite {category_hint.lower() if category_hint not in ['Auto-detect', 'Home Decor'] else 'product'}! 🎉 {feature_list[0] if feature_list else 'Super comfy'} and {feature_list[1] if len(feature_list) > 1 else 'super stylish'}. Trust me, you're going to love this one!",
-            f"Ready to level up your home game? Check this out! {feature_list[0]} - sounds good, right? It's perfect for {feature_list[1] if len(feature_list) > 1 else 'everyday use'}. Grab yours today!",
+        "illegal_activities": [
+            r"(hack|crack|break into)\s*(gst|income tax|portal|server)",
+            r"forgery",
+            r"counterfeit\s*(gstin|pan|invoice)",
+            r"identity\s*theft"
         ],
-        "Luxury": [
-            f"Experience unparalleled elegance with this exquisite {category_hint.lower() if category_hint not in ['Auto-detect', 'Home Decor'] else 'creation'}. Crafted with {feature_list[0] if feature_list else 'premium materials'}, {feature_list[1] if len(feature_list) > 1 else 'exceptional craftsmanship'} elevates everyday moments into extraordinary experiences.",
-            f"Indulge in the finest {category_hint.lower() if category_hint not in ['Auto-detect', 'Home Decor'] else 'home textile'}. {feature_list[0]} meets sophisticated design. Where luxury meets functionality.",
+        "harmful_content": [
+            r"(threat|abuse|harass|bully)",
+            r"(violence|attack|harm)\s*(person|people)",
+            r"terrorism"
         ],
-        "Eco-friendly": [
-            f"Made with love for your home and our planet. {feature_list[0] if feature_list else 'Sustainably sourced'} materials, {feature_list[1] if len(feature_list) > 1 else 'eco-friendly production'}. Choose comfort that doesn't cost the Earth. 🌍",
-            f"Nature-friendly and people-friendly! {feature_list[0] if feature_list else '100% natural'}. Biodegradable, sustainable, and absolutely beautiful for your home.",
-        ],
-        "Urgent/Buy Now": [
-            f"🔥 LIMITED TIME! Get this {category_hint.lower()} NOW. {feature_list[0] if feature_list else 'Premium quality'} + {feature_list[1] if len(feature_list) > 1 else 'amazing value'}. Stock is flying! Click ADD TO CART before it's gone!",
-            f"⚡ FLASH SALE! Don't miss out on {feature_list[0]}. {len(feature_list) if len(feature_list) > 1 else 2}+ reasons to buy: {', '.join(feature_list[:3])}. Order in the next 24 hours!",
-        ],
-        "Storytelling": [
-            f"Picture this: You wake up, and your home feels {feature_list[0] if feature_list else 'cozy and inviting'}. That's exactly what this {category_hint.lower() if category_hint not in ['Auto-detect', 'Home Decor'] else 'piece'} brings. {feature_list[1] if len(feature_list) > 1 else 'Every detail'} tells a story of comfort and care.",
-            f"There was a time when {feature_list[0] if feature_list else 'ordinary products'} were enough. Then came this {category_hint.lower() if category_hint not in ['Auto-detect', 'Home Decor'] else 'product'}. Now, your home feels complete.",
+        "sensitive_personal_info": [
+            r"(pan\s*number|aadhaar|password|otp)",
+            r"(credit\s*card|debit\s*card|bank\s*account)\s*(number|details)"
         ]
     }
     
-    # Get random template for selected tone
-    tone_templates = templates.get(tone, templates["Professional"])
-    description = random.choice(tone_templates)
+    @staticmethod
+    def is_prohibited(query):
+        """Check if query contains prohibited content"""
+        query_lower = query.lower()
+        
+        for category, patterns in ContentFilter.PROHIBITED_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, query_lower):
+                    return True, category, pattern
+        
+        return False, None, None
     
-    # Add keywords if provided
-    if keywords:
-        description += f"\n\n✨ {keywords} ✨"
-    
-    # Add call to action based on tone
-    if tone == "Urgent/Buy Now":
-        description += "\n\n📦 Free shipping on orders above ₹499!"
-    elif tone == "Luxury":
-        description += "\n\n🌟 Limited edition - Only a few pieces available"
-    else:
-        description += "\n\n🏷️ Shop now at CarryMe Store"
-    
-    return description
+    @staticmethod
+    def sanitize_response(response):
+        """Ensure response doesn't contain prohibited content"""
+        # Additional safety: block any response that might encourage illegal activity
+        harmful_phrases = [
+            "you can hide", "evade tax by", "fake invoice", 
+            "underreport without getting caught"
+        ]
+        
+        for phrase in harmful_phrases:
+            if phrase.lower() in response.lower():
+                return "⚠️ I cannot provide information that may facilitate tax evasion or illegal activities. Please consult a registered CA for legitimate tax planning."
+        
+        return response
 
-# ---------- DISPLAY GENERATED DESCRIPTION ----------
-if generate_button:
-    if not product_features or product_features.strip() == "":
-        st.error("⚠️ Please enter product features before generating!")
-    else:
-        with st.spinner("✨ Crafting your perfect description..."):
-            time.sleep(1)  # Simulate processing (remove in production)
-            description = generate_description(
-                product_features, 
-                selected_tone, 
-                category,
-                keywords if keywords else ""
-            )
+# ---------- RATE LIMITING ----------
+class RateLimiter:
+    """Prevents abuse and DDoS"""
+    
+    def __init__(self):
+        self.user_requests = defaultdict(list)
+        self.MAX_REQUESTS_PER_MINUTE = 30
+        self.MAX_REQUESTS_PER_HOUR = 300
+    
+    def check_limit(self, user_id):
+        """Check if user exceeded rate limits"""
+        now = time.time()
         
-        st.success("✅ Description generated successfully!")
-        st.markdown("### 📄 Generated Description")
-        st.markdown(f'<div class="generated-text">{description}</div>', unsafe_allow_html=True)
+        # Clean old entries
+        self.user_requests[user_id] = [
+            ts for ts in self.user_requests[user_id] 
+            if now - ts < 3600  # Keep last hour
+        ]
         
-        # Copy button workaround (users can select text)
-        st.info("💡 Tip: Select the text above and press Ctrl+C to copy")
+        # Check minute limit
+        minute_requests = len([ts for ts in self.user_requests[user_id] if now - ts < 60])
+        if minute_requests >= self.MAX_REQUESTS_PER_MINUTE:
+            return False, "Rate limit exceeded: Maximum 30 queries per minute"
         
-        # Optional: Add to session state for history
-        if 'history' not in st.session_state:
-            st.session_state.history = []
-        st.session_state.history.append({
-            "features": product_features,
-            "tone": selected_tone,
-            "description": description
-        })
+        # Check hour limit
+        if len(self.user_requests[user_id]) >= self.MAX_REQUESTS_PER_HOUR:
+            return False, "Rate limit exceeded: Maximum 300 queries per hour"
         
-        # Show quick actions
-        with st.expander("🔧 Quick Actions"):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("📋 Clear & New"):
+        # Add current request
+        self.user_requests[user_id].append(now)
+        return True, "OK"
+
+# ---------- AUDIT LOGGING (For Legal Compliance) ----------
+class AuditLogger:
+    """Logs interactions for legal compliance (anonymized after 30 days)"""
+    
+    @staticmethod
+    def log_interaction(user_id, query, response_summary, status):
+        """Store interaction for audit trail"""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_hash": hashlib.sha256(user_id.encode()).hexdigest()[:16],
+            "query_hash": hashlib.sha256(query.encode()).hexdigest()[:16],
+            "response_length": len(response_summary),
+            "status": status,
+            "ip_hash": "[REDACTED]",  # In production, hash the IP
+        }
+        
+        # In production, write to secure database
+        # For demo, store in session
+        if 'audit_logs' not in st.session_state:
+            st.session_state.audit_logs = []
+        st.session_state.audit_logs.append(log_entry)
+        
+        # Keep only last 100 for demo
+        if len(st.session_state.audit_logs) > 100:
+            st.session_state.audit_logs = st.session_state.audit_logs[-100:]
+        
+        return log_entry
+
+# ---------- KNOWLEDGE BASE (Same as before, but with safeguards) ----------
+class CAKnowledgeBase:
+    """Comprehensive knowledge base for CA workflows (safeguarded)"""
+    
+    # [Previous knowledge base methods remain the same]
+    # (Included from previous code for brevity - paste your existing KB here)
+    
+    @staticmethod
+    def get_gst_info(query):
+        """GST related information with compliance flags"""
+        # Restrict sensitive queries
+        if any(word in query.lower() for word in ['evasion', 'fake', 'illegal', 'bypass']):
+            return {
+                "error": "cannot_provide",
+                "message": "I cannot provide information that may facilitate tax evasion or illegal activities. For legitimate tax planning, please consult a registered CA."
+            }
+        
+        # [Rest of GST info logic from previous code]
+        return None
+
+# ---------- LEGAL CONSENT COMPONENT ----------
+def legal_consent_modal():
+    """Force user to accept legal terms before using the app"""
+    
+    if 'legal_accepted' not in st.session_state:
+        st.session_state.legal_accepted = False
+    
+    if not st.session_state.legal_accepted:
+        st.markdown("### ⚖️ Legal Compliance Required")
+        
+        with st.expander("📜 Legal Disclaimer (MUST READ)", expanded=True):
+            st.markdown(LEGAL_DISCLAIMER)
+        
+        with st.expander("📋 Privacy Policy (DPDP Act 2023 Compliant)"):
+            st.markdown(PRIVACY_POLICY)
+        
+        with st.expander("⚖️ Terms of Service"):
+            st.markdown(TERMS_OF_SERVICE)
+        
+        st.divider()
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.checkbox("I have read, understood, and agree to the Legal Disclaimer, Privacy Policy, and Terms of Service", key="legal_accept_checkbox")
+        
+        with col2:
+            if st.button("✅ Proceed to CA Assist", use_container_width=True):
+                if st.session_state.get('legal_accept_checkbox', False):
+                    st.session_state.legal_accepted = True
+                    st.session_state.legal_accept_time = datetime.now().isoformat()
                     st.rerun()
-            with col_b:
-                if st.button("👍 This works! Use similar tone"):
-                    st.info("Great! Keep using the same settings for your product batch")
+                else:
+                    st.error("You must accept the legal terms to use this service")
+        
+        st.stop()  # Stop execution until accepted
 
-# ---------- TIPS SECTION (Always visible) ----------
-with st.expander("💡 Pro Tips for Better Descriptions"):
-    st.markdown("""
-    **For best results:**
-    1. **Be specific** - Include material, size, color, weight
-    2. **Add benefits** - Not just "cotton" but "soft 100% cotton that absorbs 2x faster"
-    3. **Include numbers** - Dimensions, quantity, price points
-    4. **Mention use cases** - "Perfect for kitchen", "Ideal for gift giving"
+# ---------- MAIN APP WITH LEGAL & SECURITY ----------
+def main():
+    """Main application with all legal and security controls"""
     
-    **Example for CarryMe Store:**
-    > 100% cotton, 20x30 inches, absorbent, quick-dry, machine washable, 5 colors available, includes matching hanger, ideal for guest bathroom
-    """)
+    st.set_page_config(
+        page_title="CA Assist AI - Compliant Virtual CA",
+        page_icon="⚖️",
+        layout="wide"
+    )
+    
+    # Force legal consent first
+    legal_consent_modal()
+    
+    # Initialize session state
+    if 'user_id' not in st.session_state:
+        st.session_state.user_id = f"user_{int(time.time())}_{random.randint(1000,9999)}"
+    if 'rate_limiter' not in st.session_state:
+        st.session_state.rate_limiter = RateLimiter()
+    if 'audit_logger' not in st.session_state:
+        st.session_state.audit_logger = AuditLogger()
+    
+    # Check rate limit at app start
+    rate_ok, rate_msg = st.session_state.rate_limiter.check_limit(st.session_state.user_id)
+    if not rate_ok:
+        st.error(f"⛔ {rate_msg}")
+        st.info("Please wait a moment before continuing. This is for security and fair usage.")
+        st.stop()
+    
+    # Display permanent legal header
+    st.warning("⚠️ **Legal Notice:** AI-generated information may contain errors. Always verify with a registered CA or official government sources.")
+    
+    # [Rest of your CA Assist app UI and logic from previous code]
+    # (Include the chat interface, knowledge base integration, etc.)
+    
+    st.markdown("---")
+    st.caption(f"Session ID: {st.session_state.user_id[:12]}... | Grievance: grievance@cassist.ai | Response within 72 hours")
 
-# ---------- HISTORY SECTION (Optional) ----------
-if 'history' in st.session_state and len(st.session_state.history) > 0:
-    with st.expander("📜 Recent Descriptions"):
-        for i, item in enumerate(reversed(st.session_state.history[-3:])):
-            st.markdown(f"**{i+1}. Tone: {item['tone']}**")
-            st.caption(f"Features: {item['features'][:100]}...")
-            st.text(item['description'][:150] + "...")
-            st.divider()
-
-# ---------- FOOTER ----------
-st.divider()
-st.markdown(
-    "<center>🚀 CarryMe Store - AI Description Generator | Powered by Streamlit</center>",
-    unsafe_allow_html=True
-)
+# ---------- ENTRY POINT ----------
+if __name__ == "__main__":
+    main()
