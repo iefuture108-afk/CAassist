@@ -252,6 +252,3 @@ with st.sidebar:
 # ---------- Footer ----------
 st.markdown("---")
 st.caption("🚀 **CA Assist Pro** – Made with ❤️ for Indian taxpayers | Free forever (with optional support)")
-
-# ---------- Requirements ----------
-# requirements.txt: streamlit
